@@ -1,0 +1,81 @@
+---
+title: "Assessment of shipping method"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readxl)
+library(dplyr)
+library(stringr)
+library(reshape2)
+library(table1)
+
+temp_raw <- read_excel("../temp_1.xlsx", col_types = c("text", rep("date", 2), rep("numeric", 4), rep("text", 6)))
+missing_raw <- read_excel("../missing_1.xlsx")
+```
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+temp <- temp_raw %>% filter(!is.na(`Date of Arrival to TVMDL`))
+temp <- temp[, c(1, 4:6, 9)]
+names(temp) <- c("Study ID", "EDTA", "Serum", "Urine", "Region")
+temp_long <- melt(temp,
+        # ID variables - all the variables to keep but not split apart on
+        id.vars = c("Study ID", "Region"),
+        # The source columns
+        measure.vars = c("EDTA", "Serum", "Urine"),
+        variable.name = "Type",
+        value.name = "Temperature"
+)
+
+missing_tmp <- missing_raw %>% select(names(missing_raw)[str_detect(names(missing_raw), "D[0-9]")], Feces)
+missing_tmp <- apply(missing_tmp, 2, function(x) ifelse(is.na(x), 0, ifelse(x == "x", 1, ifelse(x == "?", NA, "?"))))
+missing_tmp <- apply(missing_tmp, 2, as.factor)
+missing <- cbind(missing_raw %>% select(`Study ID`, Region), missing_tmp)
+missing_long <- melt(missing,
+                     id.vars = c("Study ID", "Region"),
+                     measure.vars = colnames(missing_tmp),
+                     variable.name = "Index",
+                     value.name = "Missingness")
+
+missing_long <- missing_long %>%
+  mutate(Type = factor(ifelse(Index %in% c("D01", "D02", "D03"), "EDTA",
+                       ifelse(Index %in% unique(missing_long$Index)[str_detect(unique(missing_long$Index), "D04")], "EDTA (PBMCs)",
+                              ifelse(Index %in% c("D05", "D06"), "Red Top Clot Tube", 
+                                     ifelse(Index %in% c("D07"), "Lithium Heparin Green Top Tube",
+                                            ifelse(Index %in% c("D08"), "Urine",
+                                                   ifelse(Index %in% c("D09"), "Hair",
+                                                          ifelse(Index %in% unique(missing_long$Index)[str_detect(unique(missing_long$Index), "D10")], "Plasma",
+                                                                 ifelse(Index %in% unique(missing_long$Index)[str_detect(unique(missing_long$Index), "D11")], "Serum",
+                                                                        "Dried Blood Spot Cards")))))))), 
+         levels = c("EDTA", "EDTA (PBMCs)", "Red Top Clot Tube", "Lithium Heparin Green Top Tube", "Urine", "Hair", "Plasma", "Serum", "Dried Blood Spot Cards")))
+
+missing_long$Missingness <- factor(missing_long$Missingness, levels = c(0, 1))
+missing_long$Region <- factor(missing_long$Region, levels = c(1:4))
+```
+
+<!-- ```{r warning = FALSE} -->
+<!-- table1(~ Temperature | Type + Region, data = temp_long) -->
+<!-- ``` -->
+
+
+<!-- ```{r warning = FALSE} -->
+<!-- table1(~ Missingness | Type + Region, data = missing_long) -->
+<!-- ``` -->
+
+
+```{r}
+m_temp <- lm(Temperature ~ Region + Type, data = temp_long)
+summary(m_temp)
+```
+\newpage
+
+```{r}
+m_missing <- glm(Missingness ~ Region + Type, data = missing_long, family = "binomial")
+summary(m_missing)
+```
